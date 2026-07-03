@@ -46,7 +46,7 @@ const transactionSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['bkash', 'nagad', 'bank_transfer', 'card'],
+    enum: ['bkash', 'nagad', 'bank_transfer', 'card', 'sslcommerz'],
     default: 'bank_transfer',
   },
   transactionId: {

@@ -6,7 +6,7 @@ const StudentProfile = require('../models/StudentProfile');
 const { authorize, isAdmin } = require('../middleware/auth');
 
 const router = express.Router();
-const VALID_PAYMENT_METHODS = ['bkash', 'nagad', 'bank_transfer', 'card'];
+const VALID_PAYMENT_METHODS = ['bkash', 'nagad', 'bank_transfer', 'card', 'sslcommerz'];
 
 const normalizePaymentMethod = (paymentMethod) => {
   const paymentMap = {
@@ -14,6 +14,7 @@ const normalizePaymentMethod = (paymentMethod) => {
     nagad: 'nagad',
     bank_transfer: 'bank_transfer',
     card: 'card',
+    sslcommerz: 'sslcommerz',
   };
 
   return paymentMap[paymentMethod] || 'bank_transfer';

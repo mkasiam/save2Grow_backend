@@ -10,6 +10,15 @@ cp .env.example .env
 npm start
 ```
 
+Required payment environment variables:
+- `SSL_STORE_ID`
+- `SSL_STORE_PASSWORD`
+- `SSL_SESSION_API`
+- `SSL_VALIDATION_API`
+- `SSL_CALLBACK_BASE_URL`
+
+Use your sandbox store credentials in `.env` and set `SSL_CALLBACK_BASE_URL` to the public backend URL that SSLCommerz can reach.
+
 ## API Endpoints
 
 ### Authentication
