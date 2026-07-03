@@ -82,7 +82,6 @@ router.post("/register", async (req, res) => {
 
 // Validate credentials and return a fresh auth token plus a minimal user payload.
 router.post("/login", async (req, res) => {
-  console.log("I have got your request", req.body);
   try {
     const { email, password } = req.body;
 
