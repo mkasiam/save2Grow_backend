@@ -16,6 +16,11 @@ const transactionSchema = new mongoose.Schema({
     ref: 'UserChallenge',
     default: null,
   },
+  withdrawalRequestId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'WithdrawalRequest',
+    default: null,
+  },
   type: {
     type: String,
     enum: ['deposit', 'withdrawal'],
@@ -36,7 +41,7 @@ const transactionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'completed', 'failed'],
+    enum: ['pending', 'processing', 'completed', 'failed'],
     default: 'pending',
   },
   paymentMethod: {

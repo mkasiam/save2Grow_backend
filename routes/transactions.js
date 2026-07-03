@@ -76,6 +76,10 @@ router.post('/', authorize, async (req, res) => {
     // Set transaction status (default to pending so admins approve physical deposits/withdrawals)
     const transactionStatus = reqStatus || 'pending';
 
+    if (!['pending', 'processing', 'completed', 'failed'].includes(transactionStatus)) {
+      return res.status(400).json({ error: 'Invalid transaction status' });
+    }
+
     if (transactionStatus === 'completed' && type === 'withdrawal') {
       if (goal && goal.currentAmount < amount) {
         return res.status(400).json({ error: 'Insufficient goal balance' });
@@ -159,7 +163,7 @@ router.post('/', authorize, async (req, res) => {
 router.put('/:id/status', authorize, isAdmin, async (req, res) => {
   try {
     const { status } = req.body;
-    if (!['completed', 'failed'].includes(status)) {
+    if (!['completed', 'failed', 'processing'].includes(status)) {
       return res.status(400).json({ error: 'Invalid transaction status' });
     }
 
@@ -168,7 +172,7 @@ router.put('/:id/status', authorize, isAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Transaction not found' });
     }
 
-    if (transaction.status !== 'pending') {
+    if (!['pending', 'processing'].includes(transaction.status) && transaction.status !== status) {
       return res.status(400).json({ error: 'Transaction is already processed' });
     }
 

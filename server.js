@@ -32,6 +32,8 @@ app.use("/api/users", require("./routes/users"));
 app.use("/api/goals", require("./routes/goals"));
 app.use("/api/transactions", require("./routes/transactions"));
 app.use("/api/challenges", require("./routes/challenges"));
+app.use("/api/withdrawals", require("./routes/withdrawals"));
+app.use("/api/notifications", require("./routes/notifications"));
 
 // Final fallback error handler so unexpected server errors return a consistent JSON response.
 app.use((err, req, res, next) => {

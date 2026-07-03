@@ -5,10 +5,35 @@ const { authorize, isAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
+const buildChallengeResponse = async (challenges) => {
+  const challengeIds = challenges.map((challenge) => challenge._id);
+  const userChallenges = await UserChallenge.find({ challengeId: { $in: challengeIds } })
+    .populate('userId', 'name email');
+
+  const challengeMap = {};
+  userChallenges.forEach((uc) => {
+    const challengeKey = String(uc.challengeId);
+    if (!challengeMap[challengeKey]) {
+      challengeMap[challengeKey] = [];
+    }
+    if (uc.userId) {
+      challengeMap[challengeKey].push(uc.userId);
+    }
+  });
+
+  return challenges.map((challenge) => {
+    const participants = challengeMap[String(challenge._id)] || [];
+    return {
+      ...challenge.toObject(),
+      participantIds: participants,
+    };
+  });
+};
+
 // Create a new challenge (Admin only).
 router.post('/', authorize, isAdmin, async (req, res) => {
   try {
-    const { title, description, type, targetValue, reward, endDate } = req.body;
+    const { title, description, type, targetValue, reward, endDate, startDate, status } = req.body;
 
     const challenge = new Challenge({
       title,
@@ -16,11 +41,88 @@ router.post('/', authorize, isAdmin, async (req, res) => {
       type,
       targetValue,
       reward,
+      startDate,
       endDate,
+      status,
     });
 
     await challenge.save();
     res.status(201).json(challenge);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/admin', authorize, isAdmin, async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      status,
+    } = req.query;
+
+    const filter = {};
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+
+    const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
+    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100);
+
+    const [total, challenges] = await Promise.all([
+      Challenge.countDocuments(filter),
+      Challenge.find(filter)
+        .sort('-createdAt')
+        .skip((pageNumber - 1) * pageSize)
+        .limit(pageSize),
+    ]);
+
+    const response = await buildChallengeResponse(challenges);
+
+    res.json({
+      data: response,
+      pagination: {
+        page: pageNumber,
+        limit: pageSize,
+        total,
+        totalPages: Math.max(Math.ceil(total / pageSize), 1),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put('/admin/:id', authorize, isAdmin, async (req, res) => {
+  try {
+    const challenge = await Challenge.findById(req.params.id);
+    if (!challenge) {
+      return res.status(404).json({ error: 'Challenge not found' });
+    }
+
+    const fields = ['title', 'description', 'type', 'targetValue', 'reward', 'startDate', 'endDate', 'status'];
+    fields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        challenge[field] = req.body[field];
+      }
+    });
+
+    await challenge.save();
+    res.json(challenge);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete('/admin/:id', authorize, isAdmin, async (req, res) => {
+  try {
+    const challenge = await Challenge.findByIdAndDelete(req.params.id);
+    if (!challenge) {
+      return res.status(404).json({ error: 'Challenge not found' });
+    }
+
+    await UserChallenge.deleteMany({ challengeId: req.params.id });
+    res.json({ message: 'Challenge deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -31,28 +133,7 @@ router.get('/', async (req, res) => {
   try {
     const challenges = await Challenge.find({ status: 'active' }).sort('-createdAt');
 
-    // Fetch participants for each challenge to preserve the participantIds field in response
-    const challengeIds = challenges.map(c => c._id);
-    const userChallenges = await UserChallenge.find({ challengeId: { $in: challengeIds } })
-      .populate('userId', 'name email');
-
-    const challengeMap = {};
-    userChallenges.forEach(uc => {
-      if (!challengeMap[uc.challengeId]) {
-        challengeMap[uc.challengeId] = [];
-      }
-      if (uc.userId) {
-        challengeMap[uc.challengeId].push(uc.userId);
-      }
-    });
-
-    const response = challenges.map(challenge => {
-      const participants = challengeMap[challenge._id] || [];
-      return {
-        ...challenge.toObject(),
-        participantIds: participants,
-      };
-    });
+    const response = await buildChallengeResponse(challenges);
 
     res.json(response);
   } catch (error) {

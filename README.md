@@ -40,4 +40,34 @@ npm start
 - `GET /api/challenges` - Get all challenges
 - `POST /api/challenges/:id/join` - Join challenge
 - `GET /api/challenges/user/challenges` - Get user challenges
+- `GET /api/challenges/admin?status=all|active|inactive&page=1&limit=20` - Admin challenge list with filtering and pagination
+- `PUT /api/challenges/admin/:id` - Update challenge
+- `DELETE /api/challenges/admin/:id` - Delete challenge
+
+### Withdrawals
+- `POST /api/withdrawals/request` - Create a challenge withdrawal request
+- `GET /api/withdrawals/me` - Get the signed-in user's withdrawal requests
+- `GET /api/withdrawals/admin` - Admin review list
+- `PUT /api/withdrawals/:id/status` - Approve or reject a withdrawal request
+
+### Notifications
+- `GET /api/notifications` - Fetch in-app notifications for the signed-in user
+- `PUT /api/notifications/:id/read` - Mark a notification as read
+
+### SSLCommerz Sandbox and Manual Payout Notes
+SSLCommerz is treated here as a deposit/collection gateway only. The project does not implement automated payout/disbursement because the standard SSLCommerz API does not provide direct mass payouts in sandbox.
+
+Manual simulation steps for deposits in the sandbox:
+1. Use the SSLCommerz sandbox credentials in your backend environment.
+2. Start a deposit from the mobile app and complete the sandbox checkout flow.
+3. Confirm the payment status in your backend transaction log.
+4. Keep the transaction record as the source of truth for the user's deposit balance.
+
+Manual steps for withdrawal handling:
+1. The user submits a withdrawal request from the challenge detail screen.
+2. The request is stored as `pending` with the calculated payout and penalty details.
+3. The admin reviews it in the Payments screen under `Withdrawal Requests`.
+4. On approval, the app stores an `approved & processing` notification and a processing transaction record.
+5. The admin completes the actual bank transfer outside SSLCommerz and marks the request as handled in the app.
+6. If needed, note the bank transfer reference number in the admin note field for audit purposes.
 
