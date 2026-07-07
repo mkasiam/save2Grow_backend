@@ -289,7 +289,18 @@ router.get('/all', authorize, isAdmin, async (req, res) => {
 // Return the authenticated user's full transaction history, newest first.
 router.get('/', authorize, async (req, res) => {
   try {
-    const transactions = await Transaction.find({ userId: req.user.id })
+    const { goalId, userChallengeId } = req.query;
+    const filter = { userId: req.user.id };
+
+    if (goalId) {
+      filter.goalId = goalId;
+    }
+
+    if (userChallengeId) {
+      filter.userChallengeId = userChallengeId;
+    }
+
+    const transactions = await Transaction.find(filter)
       .populate('goalId')
       .populate({
         path: 'userChallengeId',

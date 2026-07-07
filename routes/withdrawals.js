@@ -4,6 +4,7 @@ const Challenge = require('../models/Challenge');
 const UserChallenge = require('../models/UserChallenge');
 const Notification = require('../models/Notification');
 const Transaction = require('../models/Transaction');
+const StudentProfile = require('../models/StudentProfile');
 const { authorize, isAdmin, requireVerifiedStudent } = require('../middleware/auth');
 
 const router = express.Router();
@@ -94,6 +95,18 @@ router.post('/request', authorize, requireVerifiedStudent, async (req, res) => {
       adminNote: typeof adminNote === 'string' ? adminNote.trim() : '',
     });
 
+    await Transaction.create({
+      userId: req.user.id,
+      userChallengeId: userChallenge._id,
+      withdrawalRequestId: withdrawalRequest._id,
+      type: 'withdrawal',
+      amount: breakdown.payoutAmount,
+      description: `Withdrawal request for ${challenge.title}`,
+      note: 'Pending admin review',
+      paymentMethod: 'bank_transfer',
+      status: 'pending',
+    });
+
     res.status(201).json({
       withdrawalRequest,
       breakdown: {
@@ -162,17 +175,45 @@ router.put('/:id/status', authorize, isAdmin, async (req, res) => {
     if (status === 'approved') {
       withdrawalRequest.approvedAt = Date.now();
 
-      await Transaction.create({
-        userId: withdrawalRequest.userId,
-        userChallengeId: withdrawalRequest.userChallengeId?._id || withdrawalRequest.userChallengeId,
+      const existingTransaction = await Transaction.findOne({
         withdrawalRequestId: withdrawalRequest._id,
         type: 'withdrawal',
-        amount: withdrawalRequest.payoutAmount,
-        description: `Withdrawal request approved for ${withdrawalRequest.challengeId?.title || 'challenge'}`,
-        note: 'Approved & processing for manual bank transfer',
-        paymentMethod: 'bank_transfer',
-        status: 'pending',
+        userId: withdrawalRequest.userId,
       });
+
+      if (existingTransaction) {
+        existingTransaction.status = 'completed';
+        existingTransaction.description = `Withdrawal approved for ${withdrawalRequest.challengeId?.title || 'challenge'}`;
+        existingTransaction.note = 'Approved & processed for manual transfer';
+        existingTransaction.updatedAt = Date.now();
+        await existingTransaction.save();
+      }
+
+      const userChallenge = withdrawalRequest.userChallengeId
+        ? await UserChallenge.findOne({ _id: withdrawalRequest.userChallengeId, userId: withdrawalRequest.userId }).populate('challengeId')
+        : null;
+
+      if (userChallenge) {
+        if (userChallenge.currentAmount < withdrawalRequest.payoutAmount) {
+          throw new Error('Requested withdrawal exceeds the available balance');
+        }
+
+        userChallenge.currentAmount = Math.max(0, userChallenge.currentAmount - withdrawalRequest.payoutAmount);
+        if (userChallenge.currentAmount < userChallenge.targetValue) {
+          userChallenge.status = 'joined';
+          userChallenge.completedAt = null;
+        }
+        userChallenge.updatedAt = Date.now();
+        await userChallenge.save();
+      }
+
+      const studentProfile = await StudentProfile.findOne({ userId: withdrawalRequest.userId });
+      if (studentProfile) {
+        studentProfile.totalWithdrawn += withdrawalRequest.payoutAmount;
+        studentProfile.totalSavings = Math.max(0, studentProfile.totalSavings - withdrawalRequest.payoutAmount);
+        studentProfile.updatedAt = Date.now();
+        await studentProfile.save();
+      }
 
       await createUserNotification({
         userId: withdrawalRequest.userId,
@@ -187,6 +228,19 @@ router.put('/:id/status', authorize, isAdmin, async (req, res) => {
       });
     } else {
       withdrawalRequest.rejectedAt = Date.now();
+
+      const existingTransaction = await Transaction.findOne({
+        withdrawalRequestId: withdrawalRequest._id,
+        type: 'withdrawal',
+        userId: withdrawalRequest.userId,
+      });
+
+      if (existingTransaction) {
+        existingTransaction.status = 'failed';
+        existingTransaction.note = 'Withdrawal request rejected by admin';
+        existingTransaction.updatedAt = Date.now();
+        await existingTransaction.save();
+      }
 
       await createUserNotification({
         userId: withdrawalRequest.userId,
