@@ -4,7 +4,7 @@ const Challenge = require('../models/Challenge');
 const UserChallenge = require('../models/UserChallenge');
 const Notification = require('../models/Notification');
 const Transaction = require('../models/Transaction');
-const { authorize, isAdmin } = require('../middleware/auth');
+const { authorize, isAdmin, requireVerifiedStudent } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -28,7 +28,7 @@ const createUserNotification = async ({ userId, title, body, type, metadata }) =
   });
 };
 
-router.post('/request', authorize, async (req, res) => {
+router.post('/request', authorize, requireVerifiedStudent, async (req, res) => {
   try {
     const { challengeId, userChallengeId, adminNote } = req.body;
 
@@ -171,7 +171,7 @@ router.put('/:id/status', authorize, isAdmin, async (req, res) => {
         description: `Withdrawal request approved for ${withdrawalRequest.challengeId?.title || 'challenge'}`,
         note: 'Approved & processing for manual bank transfer',
         paymentMethod: 'bank_transfer',
-        status: 'processing',
+        status: 'pending',
       });
 
       await createUserNotification({

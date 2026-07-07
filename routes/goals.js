@@ -1,5 +1,6 @@
 const express = require('express');
 const Goal = require('../models/Goal');
+const UserChallenge = require('../models/UserChallenge');
 const StudentProfile = require('../models/StudentProfile');
 const { authorize } = require('../middleware/auth');
 
@@ -53,8 +54,40 @@ router.post('/', authorize, async (req, res) => {
 // Return every goal that belongs to the currently authenticated user.
 router.get('/', authorize, async (req, res) => {
   try {
-    const goals = await Goal.find({ userId: req.user.id });
-    res.json(goals);
+    const [goals, activeUserChallenges] = await Promise.all([
+      Goal.find({ userId: req.user.id }).sort('-createdAt'),
+      UserChallenge.find({ userId: req.user.id, status: 'joined' })
+        .populate('challengeId')
+        .sort('-joinedAt'),
+    ]);
+
+    const unifiedGoals = [
+      ...goals.map((goal) => ({
+        ...goal.toObject(),
+        id: goal._id,
+        entityType: 'goal',
+        sourceType: 'goal',
+      })),
+      ...activeUserChallenges
+        .filter((userChallenge) => userChallenge.challengeId)
+        .map((userChallenge) => ({
+          ...userChallenge.challengeId.toObject(),
+          id: userChallenge.challengeId._id,
+          entityType: 'userChallenge',
+          sourceType: 'challenge',
+          userChallengeId: userChallenge._id,
+          currentAmount: userChallenge.currentProgress,
+          currentProgress: userChallenge.currentProgress,
+          targetAmount: userChallenge.challengeId.targetValue,
+          targetValue: userChallenge.challengeId.targetValue,
+          targetDate: userChallenge.challengeId.endDate,
+          category: 'challenge',
+          icon: '🏁',
+          status: userChallenge.status === 'completed' ? 'completed' : 'active',
+        })),
+    ];
+
+    res.json(unifiedGoals);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

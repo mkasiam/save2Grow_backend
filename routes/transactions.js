@@ -3,7 +3,7 @@ const Transaction = require('../models/Transaction');
 const Goal = require('../models/Goal');
 const UserChallenge = require('../models/UserChallenge');
 const StudentProfile = require('../models/StudentProfile');
-const { authorize, isAdmin } = require('../middleware/auth');
+const { authorize, isAdmin, requireVerifiedStudent } = require('../middleware/auth');
 
 const router = express.Router();
 const VALID_PAYMENT_METHODS = ['bkash', 'nagad', 'bank_transfer', 'card', 'sslcommerz'];
@@ -20,8 +20,26 @@ const normalizePaymentMethod = (paymentMethod) => {
   return paymentMap[paymentMethod] || 'bank_transfer';
 };
 
+const resolveWithdrawalTarget = async ({ goalId, userChallengeId, userId }) => {
+  if (goalId) {
+    const goal = await Goal.findOne({ _id: goalId, userId });
+    if (!goal) {
+      return { error: { status: 404, message: 'Goal not found' } };
+    }
+
+    return { kind: 'goal', target: goal, balance: Number(goal.currentAmount || 0) };
+  }
+
+  const userChallenge = await UserChallenge.findOne({ _id: userChallengeId, userId }).populate('challengeId');
+  if (!userChallenge) {
+    return { error: { status: 404, message: 'User challenge not found' } };
+  }
+
+  return { kind: 'userChallenge', target: userChallenge, balance: Number(userChallenge.currentProgress || 0) };
+};
+
 // Create a new transaction and apply its financial impact immediately only if status is completed (e.g. legacy/direct paths)
-router.post('/', authorize, async (req, res) => {
+router.post('/', authorize, requireVerifiedStudent, async (req, res) => {
   try {
     const { goalId, userChallengeId, type, amount, description, paymentMethod, note, status: reqStatus } = req.body;
     const normalizedDescription =
@@ -40,6 +58,10 @@ router.post('/', authorize, async (req, res) => {
       return res.status(400).json({ error: 'Please provide a valid goal id or user challenge id' });
     }
 
+    if (goalId && userChallengeId) {
+      return res.status(400).json({ error: 'Please provide either a goal id or a user challenge id, not both' });
+    }
+
     if (description !== undefined && !normalizedDescription) {
       return res.status(400).json({ error: 'Description cannot be empty' });
     }
@@ -56,38 +78,28 @@ router.post('/', authorize, async (req, res) => {
       return res.status(400).json({ error: 'Invalid payment method' });
     }
 
-    // Verify Goal if goalId is provided
-    let goal = null;
-    if (goalId) {
-      goal = await Goal.findOne({ _id: goalId, userId: req.user.id });
-      if (!goal) {
-        return res.status(404).json({ error: 'Goal not found' });
-      }
+    const resolvedTarget = await resolveWithdrawalTarget({
+      goalId,
+      userChallengeId,
+      userId: req.user.id,
+    });
+
+    if (resolvedTarget.error) {
+      return res.status(resolvedTarget.error.status).json({ error: resolvedTarget.error.message });
     }
 
-    // Verify UserChallenge if userChallengeId is provided
-    let userChallenge = null;
-    if (userChallengeId) {
-      userChallenge = await UserChallenge.findOne({ _id: userChallengeId, userId: req.user.id }).populate('challengeId');
-      if (!userChallenge) {
-        return res.status(404).json({ error: 'User challenge not found' });
-      }
-    }
+    const goal = resolvedTarget.kind === 'goal' ? resolvedTarget.target : null;
+    const userChallenge = resolvedTarget.kind === 'userChallenge' ? resolvedTarget.target : null;
 
     // Set transaction status (default to pending so admins approve physical deposits/withdrawals)
-    const transactionStatus = reqStatus || 'pending';
+    const transactionStatus = type === 'withdrawal' ? 'pending' : (reqStatus || 'pending');
 
     if (!['pending', 'processing', 'completed', 'failed'].includes(transactionStatus)) {
       return res.status(400).json({ error: 'Invalid transaction status' });
     }
 
-    if (transactionStatus === 'completed' && type === 'withdrawal') {
-      if (goal && goal.currentAmount < amount) {
-        return res.status(400).json({ error: 'Insufficient goal balance' });
-      }
-      if (userChallenge && userChallenge.currentProgress < amount) {
-        return res.status(400).json({ error: 'Insufficient challenge progress balance' });
-      }
+    if (type === 'withdrawal' && resolvedTarget.balance < amount) {
+      return res.status(400).json({ error: 'Requested withdrawal exceeds the available balance' });
     }
 
     const transaction = new Transaction({
@@ -114,6 +126,9 @@ router.post('/', authorize, async (req, res) => {
             goal.status = 'completed';
           }
         } else if (type === 'withdrawal') {
+          if (goal.currentAmount < amount) {
+            return res.status(400).json({ error: 'Requested withdrawal exceeds the available balance' });
+          }
           goal.currentAmount -= amount;
           if (goal.currentAmount < goal.targetAmount) {
             goal.status = 'active';
@@ -131,6 +146,9 @@ router.post('/', authorize, async (req, res) => {
             userChallenge.completedAt = Date.now();
           }
         } else if (type === 'withdrawal') {
+          if (userChallenge.currentProgress < amount) {
+            return res.status(400).json({ error: 'Requested withdrawal exceeds the available balance' });
+          }
           userChallenge.currentProgress = Math.max(0, userChallenge.currentProgress - amount);
           if (userChallenge.currentProgress < userChallenge.challengeId.targetValue) {
             userChallenge.status = 'joined';
@@ -195,6 +213,9 @@ router.put('/:id/status', authorize, isAdmin, async (req, res) => {
               goal.status = 'completed';
             }
           } else if (transaction.type === 'withdrawal') {
+            if (goal.currentAmount < amount) {
+              return res.status(400).json({ error: 'Requested withdrawal exceeds the available balance' });
+            }
             goal.currentAmount -= amount;
             if (goal.currentAmount < goal.targetAmount) {
               goal.status = 'active';
@@ -215,6 +236,9 @@ router.put('/:id/status', authorize, isAdmin, async (req, res) => {
               userChallenge.completedAt = Date.now();
             }
           } else if (transaction.type === 'withdrawal') {
+            if (userChallenge.currentProgress < amount) {
+              return res.status(400).json({ error: 'Requested withdrawal exceeds the available balance' });
+            }
             userChallenge.currentProgress = Math.max(0, userChallenge.currentProgress - amount);
             if (userChallenge.currentProgress < userChallenge.challengeId.targetValue) {
               userChallenge.status = 'joined';

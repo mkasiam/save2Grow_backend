@@ -36,3 +36,17 @@ exports.isAdmin = (req, res, next) => {
     res.status(403).json({ error: 'Access denied. Admin role required.' });
   }
 };
+
+exports.requireVerifiedStudent = (req, res, next) => {
+  if (!req.user || req.user.role !== 'student') {
+    return next();
+  }
+
+  if (req.user.studentProfile?.verificationStatus === 'verified') {
+    return next();
+  }
+
+  return res.status(403).json({
+    error: 'Your account is awaiting administrator verification.',
+  });
+};

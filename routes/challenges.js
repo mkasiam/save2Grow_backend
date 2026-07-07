@@ -172,6 +172,9 @@ router.post('/:id/join', authorize, async (req, res) => {
     res.json({
       ...challenge.toObject(),
       participantIds,
+      userChallengeId: userChallenge._id,
+      userChallengeStatus: userChallenge.status,
+      currentProgress: userChallenge.currentProgress,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

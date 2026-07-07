@@ -5,7 +5,7 @@ const Transaction = require('../models/Transaction');
 const Goal = require('../models/Goal');
 const UserChallenge = require('../models/UserChallenge');
 const StudentProfile = require('../models/StudentProfile');
-const { authorize } = require('../middleware/auth');
+const { authorize, requireVerifiedStudent } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -114,7 +114,7 @@ const updateCompletedDeposit = async ({ transaction, amount }) => {
   }
 };
 
-router.post('/sslcommerz/initiate', authorize, async (req, res) => {
+router.post('/sslcommerz/initiate', authorize, requireVerifiedStudent, async (req, res) => {
   try {
     if (!STORE_ID || !STORE_PASSWORD) {
       return res.status(500).json({ error: 'SSLCommerz credentials are not configured' });
