@@ -38,6 +38,67 @@ const resolveWithdrawalTarget = async ({ goalId, userChallengeId, userId }) => {
   return { kind: 'userChallenge', target: userChallenge, balance: Number(userChallenge.currentAmount || 0) };
 };
 
+const applyTransactionImpact = async ({ transaction, goal, userChallenge, userId }) => {
+  const targetGoal = goal || (transaction.goalId ? await Goal.findOne({ _id: transaction.goalId, userId }) : null);
+  const targetUserChallenge = userChallenge || (
+    transaction.userChallengeId
+      ? await UserChallenge.findOne({ _id: transaction.userChallengeId, userId }).populate('challengeId')
+      : null
+  );
+
+  if (targetGoal) {
+    if (transaction.type === 'deposit') {
+      targetGoal.currentAmount += transaction.amount;
+      if (targetGoal.currentAmount >= targetGoal.targetAmount) {
+        targetGoal.status = 'completed';
+      }
+    } else if (transaction.type === 'withdrawal') {
+      if (targetGoal.currentAmount < transaction.amount) {
+        throw new Error('Requested withdrawal exceeds the available balance');
+      }
+      targetGoal.currentAmount -= transaction.amount;
+      if (targetGoal.currentAmount < targetGoal.targetAmount) {
+        targetGoal.status = 'active';
+      }
+    }
+    targetGoal.updatedAt = Date.now();
+    await targetGoal.save();
+  }
+
+  if (targetUserChallenge) {
+    if (transaction.type === 'deposit') {
+      targetUserChallenge.currentAmount += transaction.amount;
+      if (targetUserChallenge.currentAmount >= targetUserChallenge.targetValue) {
+        targetUserChallenge.status = 'completed';
+        targetUserChallenge.completedAt = Date.now();
+      }
+    } else if (transaction.type === 'withdrawal') {
+      if (targetUserChallenge.currentAmount < transaction.amount) {
+        throw new Error('Requested withdrawal exceeds the available balance');
+      }
+      targetUserChallenge.currentAmount = Math.max(0, targetUserChallenge.currentAmount - transaction.amount);
+      if (targetUserChallenge.currentAmount < targetUserChallenge.targetValue) {
+        targetUserChallenge.status = 'joined';
+        targetUserChallenge.completedAt = null;
+      }
+    }
+    targetUserChallenge.updatedAt = Date.now();
+    await targetUserChallenge.save();
+  }
+
+  const studentProfile = await StudentProfile.findOne({ userId });
+  if (studentProfile) {
+    if (transaction.type === 'deposit') {
+      studentProfile.totalSavings += transaction.amount;
+    } else if (transaction.type === 'withdrawal') {
+      studentProfile.totalWithdrawn += transaction.amount;
+      studentProfile.totalSavings = Math.max(0, studentProfile.totalSavings - transaction.amount);
+    }
+    studentProfile.updatedAt = Date.now();
+    await studentProfile.save();
+  }
+};
+
 // Create a new transaction and apply its financial impact immediately only if status is completed (e.g. legacy/direct paths)
 router.post('/', authorize, requireVerifiedStudent, async (req, res) => {
   try {
@@ -91,8 +152,8 @@ router.post('/', authorize, requireVerifiedStudent, async (req, res) => {
     const goal = resolvedTarget.kind === 'goal' ? resolvedTarget.target : null;
     const userChallenge = resolvedTarget.kind === 'userChallenge' ? resolvedTarget.target : null;
 
-    // Set transaction status (default to pending so admins approve physical deposits/withdrawals)
-    const transactionStatus = type === 'withdrawal' ? 'pending' : (reqStatus || 'pending');
+    // Deposits are approved instantly; withdrawals stay pending until review.
+    const transactionStatus = type === 'deposit' ? 'completed' : (type === 'withdrawal' ? 'pending' : (reqStatus || 'pending'));
 
     if (!['pending', 'processing', 'completed', 'failed'].includes(transactionStatus)) {
       return res.status(400).json({ error: 'Invalid transaction status' });
@@ -116,59 +177,12 @@ router.post('/', authorize, requireVerifiedStudent, async (req, res) => {
 
     await transaction.save();
 
-    // Only apply financial impact to Goal, UserChallenge and StudentProfile immediately if status is 'completed'
     if (transactionStatus === 'completed') {
-      // Update Goal if target is Goal
-      if (goal) {
-        if (type === 'deposit') {
-          goal.currentAmount += amount;
-          if (goal.currentAmount >= goal.targetAmount) {
-            goal.status = 'completed';
-          }
-        } else if (type === 'withdrawal') {
-          if (goal.currentAmount < amount) {
-            return res.status(400).json({ error: 'Requested withdrawal exceeds the available balance' });
-          }
-          goal.currentAmount -= amount;
-          if (goal.currentAmount < goal.targetAmount) {
-            goal.status = 'active';
-          }
-        }
-        await goal.save();
-      }
-
-      // Update UserChallenge if target is Challenge
-      if (userChallenge) {
-        if (type === 'deposit') {
-          userChallenge.currentAmount += amount;
-          if (userChallenge.currentAmount >= userChallenge.targetValue) {
-            userChallenge.status = 'completed';
-            userChallenge.completedAt = Date.now();
-          }
-        } else if (type === 'withdrawal') {
-          if (userChallenge.currentAmount < amount) {
-            return res.status(400).json({ error: 'Requested withdrawal exceeds the available balance' });
-          }
-          userChallenge.currentAmount = Math.max(0, userChallenge.currentAmount - amount);
-          if (userChallenge.currentAmount < userChallenge.targetValue) {
-            userChallenge.status = 'joined';
-            userChallenge.completedAt = null;
-          }
-        }
-        await userChallenge.save();
-      }
-
-      // Update StudentProfile aggregate savings
-      const studentProfile = await StudentProfile.findOne({ userId: req.user.id });
-      if (studentProfile) {
-        if (type === 'deposit') {
-          studentProfile.totalSavings += amount;
-        } else if (type === 'withdrawal') {
-          studentProfile.totalWithdrawn += amount;
-          studentProfile.totalSavings = Math.max(0, studentProfile.totalSavings - amount);
-        }
-        studentProfile.updatedAt = Date.now();
-        await studentProfile.save();
+      try {
+        await applyTransactionImpact({ transaction, goal, userChallenge, userId: req.user.id });
+      } catch (impactError) {
+        await Transaction.findByIdAndDelete(transaction._id);
+        return res.status(400).json({ error: impactError.message });
       }
     }
 
@@ -199,67 +213,14 @@ router.put('/:id/status', authorize, isAdmin, async (req, res) => {
     transaction.updatedAt = Date.now();
     await transaction.save();
 
-    // If approved, apply financial impact to Goal/UserChallenge and StudentProfile!
-    if (status === 'completed') {
-      const amount = transaction.amount;
-
-      // Update Goal if transaction has goalId
-      if (transaction.goalId) {
-        const goal = await Goal.findOne({ _id: transaction.goalId, userId: transaction.userId });
-        if (goal) {
-          if (transaction.type === 'deposit') {
-            goal.currentAmount += amount;
-            if (goal.currentAmount >= goal.targetAmount) {
-              goal.status = 'completed';
-            }
-          } else if (transaction.type === 'withdrawal') {
-            if (goal.currentAmount < amount) {
-              return res.status(400).json({ error: 'Requested withdrawal exceeds the available balance' });
-            }
-            goal.currentAmount -= amount;
-            if (goal.currentAmount < goal.targetAmount) {
-              goal.status = 'active';
-            }
-          }
-          await goal.save();
-        }
-      }
-
-      // Update UserChallenge if transaction has userChallengeId
-      if (transaction.userChallengeId) {
-        const userChallenge = await UserChallenge.findOne({ _id: transaction.userChallengeId, userId: transaction.userId }).populate('challengeId');
-        if (userChallenge) {
-          if (transaction.type === 'deposit') {
-            userChallenge.currentAmount += amount;
-            if (userChallenge.currentAmount >= userChallenge.targetValue) {
-              userChallenge.status = 'completed';
-              userChallenge.completedAt = Date.now();
-            }
-          } else if (transaction.type === 'withdrawal') {
-            if (userChallenge.currentAmount < amount) {
-              return res.status(400).json({ error: 'Requested withdrawal exceeds the available balance' });
-            }
-            userChallenge.currentAmount = Math.max(0, userChallenge.currentAmount - amount);
-            if (userChallenge.currentAmount < userChallenge.targetValue) {
-              userChallenge.status = 'joined';
-              userChallenge.completedAt = null;
-            }
-          }
-          await userChallenge.save();
-        }
-      }
-
-      // Update StudentProfile
-      const studentProfile = await StudentProfile.findOne({ userId: transaction.userId });
-      if (studentProfile) {
-        if (transaction.type === 'deposit') {
-          studentProfile.totalSavings += amount;
-        } else if (transaction.type === 'withdrawal') {
-          studentProfile.totalWithdrawn += amount;
-          studentProfile.totalSavings = Math.max(0, studentProfile.totalSavings - amount);
-        }
-        studentProfile.updatedAt = Date.now();
-        await studentProfile.save();
+if (status === 'completed') {
+      try {
+        await applyTransactionImpact({ transaction, userId: transaction.userId });
+      } catch (impactError) {
+        transaction.status = 'failed';
+        transaction.updatedAt = Date.now();
+        await transaction.save();
+        return res.status(400).json({ error: impactError.message });
       }
     }
 
