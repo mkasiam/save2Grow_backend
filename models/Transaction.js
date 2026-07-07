@@ -34,10 +34,14 @@ const transactionSchema = new mongoose.Schema({
   description: {
     type: String,
     trim: true,
+    required: false,
+    default: '',
   },
   note: {
     type: String,
     trim: true,
+    required: false,
+    default: '',
   },
   status: {
     type: String,

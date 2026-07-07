@@ -39,6 +39,7 @@ router.post('/', authorize, async (req, res) => {
       title: normalizedTitle,
       description: normalizedDescription,
       targetAmount: parsedTargetAmount,
+      currentAmount: 0,
       targetDate,
       category,
       icon: icon || '🎯',

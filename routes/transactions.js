@@ -123,10 +123,6 @@ router.post('/', authorize, requireVerifiedStudent, async (req, res) => {
       return res.status(400).json({ error: 'Please provide either a goal id or a user challenge id, not both' });
     }
 
-    if (description !== undefined && !normalizedDescription) {
-      return res.status(400).json({ error: 'Description cannot be empty' });
-    }
-
     if (normalizedDescription.length > 160) {
       return res.status(400).json({ error: 'Description is too long' });
     }
@@ -153,7 +149,13 @@ router.post('/', authorize, requireVerifiedStudent, async (req, res) => {
     const userChallenge = resolvedTarget.kind === 'userChallenge' ? resolvedTarget.target : null;
 
     // Deposits are approved instantly; withdrawals stay pending until review.
-    const transactionStatus = type === 'deposit' ? 'completed' : (type === 'withdrawal' ? 'pending' : (reqStatus || 'pending'));
+    const transactionStatus = type === 'deposit'
+      ? 'completed'
+      : (type === 'withdrawal' ? 'pending' : (
+          ['pending', 'processing', 'completed', 'failed'].includes(reqStatus)
+            ? reqStatus
+            : 'pending'
+        ));
 
     if (!['pending', 'processing', 'completed', 'failed'].includes(transactionStatus)) {
       return res.status(400).json({ error: 'Invalid transaction status' });

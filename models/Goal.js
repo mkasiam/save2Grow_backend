@@ -23,6 +23,7 @@ const goalSchema = new mongoose.Schema({
   currentAmount: {
     type: Number,
     default: 0,
+    required: false,
   },
   targetDate: {
     type: Date,
