@@ -102,9 +102,10 @@ const applyTransactionImpact = async ({ transaction, goal, userChallenge, userId
 // Create a new transaction and apply its financial impact immediately only if status is completed (e.g. legacy/direct paths)
 router.post('/', authorize, requireVerifiedStudent, async (req, res) => {
   try {
-    const { goalId, userChallengeId, type, amount, description, paymentMethod, note, status: reqStatus } = req.body;
-    const normalizedDescription =
-      typeof description === 'string' ? description.trim() : '';
+    const { goalId, userChallengeId, type, amount, paymentMethod, status: reqStatus } = req.body;
+    const description = req.body.description || '';
+    const note = req.body.note || '';
+    const normalizedDescription = typeof description === 'string' ? description.trim() : '';
     const normalizedNote = typeof note === 'string' ? note.trim() : '';
 
     if (!Number.isFinite(amount) || amount <= 0) {
