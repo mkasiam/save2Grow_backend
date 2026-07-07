@@ -98,8 +98,8 @@ const updateCompletedDeposit = async ({ transaction, amount }) => {
   }
 
   if (userChallenge) {
-    userChallenge.currentProgress += depositAmount;
-    if (userChallenge.challengeId && userChallenge.currentProgress >= userChallenge.challengeId.targetValue) {
+    userChallenge.currentAmount += depositAmount;
+    if (userChallenge.challengeId && userChallenge.currentAmount >= userChallenge.challengeId.targetValue) {
       userChallenge.status = 'completed';
       userChallenge.completedAt = Date.now();
     }

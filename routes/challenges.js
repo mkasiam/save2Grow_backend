@@ -158,7 +158,8 @@ router.post('/:id/join', authorize, async (req, res) => {
       userChallenge = new UserChallenge({
         userId: req.user.id,
         challengeId: challenge._id,
-        currentProgress: 0,
+        currentAmount: 0,
+        targetValue: challenge.targetValue,
         status: 'joined',
       });
       await userChallenge.save();
@@ -174,7 +175,7 @@ router.post('/:id/join', authorize, async (req, res) => {
       participantIds,
       userChallengeId: userChallenge._id,
       userChallengeStatus: userChallenge.status,
-      currentProgress: userChallenge.currentProgress,
+      currentAmount: userChallenge.currentAmount,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -200,7 +201,7 @@ router.get('/user/challenges', authorize, async (req, res) => {
           ...uc.challengeId.toObject(),
           participantIds,
           userChallengeStatus: uc.status,
-          currentProgress: uc.currentProgress,
+          currentAmount: uc.currentAmount,
           userChallengeId: uc._id,
         });
       }

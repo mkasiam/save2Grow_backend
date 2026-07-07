@@ -71,8 +71,8 @@ router.post('/request', authorize, requireVerifiedStudent, async (req, res) => {
       return res.status(409).json({ error: 'You already have a pending withdrawal request for this challenge' });
     }
 
-    const completed = userChallenge.status === 'completed' || userChallenge.currentProgress >= challenge.targetValue || challenge.status === 'completed';
-    const baseAmount = roundMoney(userChallenge.currentProgress || 0);
+    const completed = userChallenge.status === 'completed' || userChallenge.currentAmount >= userChallenge.targetValue || challenge.status === 'completed';
+    const baseAmount = roundMoney(userChallenge.currentAmount || 0);
 
     if (baseAmount <= 0) {
       return res.status(400).json({ error: 'No available savings were found for this challenge' });

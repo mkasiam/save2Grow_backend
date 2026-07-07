@@ -11,9 +11,13 @@ const userChallengeSchema = new mongoose.Schema({
     ref: 'Challenge',
     required: true,
   },
-  currentProgress: {
+  currentAmount: {
     type: Number,
     default: 0,
+  },
+  targetValue: {
+    type: Number,
+    required: true,
   },
   status: {
     type: String,
